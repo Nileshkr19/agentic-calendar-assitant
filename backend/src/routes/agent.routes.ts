@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireSession } from "../middleware/requireSession";
+import {
+  getThreadMessages,
+  listUserThreads,
+  streamAgentReply,
+} from "../services/agent.service";
 
 export const agentRoutes = Router();
 
@@ -15,7 +20,7 @@ agentRoutes.use(requireSession);
 
 agentRoutes.get("/threads", async (req, res) => {
   try {
-    const threads = await listUserThreads();
+    const threads = await listUserThreads(req.auth!.authUserId);
     res.json({ threads, success: true });
   } catch {
     res.status(500).json({ error: "could not fetch threads", success: false });
@@ -29,7 +34,7 @@ agentRoutes.get("/threads/:threadId", async (req, res) => {
     return;
   }
   try {
-    const messages = await getThreadMessages();
+    const messages = await getThreadMessages(req.auth!.authUserId, parsed.data);
 
     res.json({ threadId: parsed.data, messages, success: true });
   } catch {
@@ -57,9 +62,16 @@ agentRoutes.post("/chat", async (req, res) => {
   };
 
   try {
-    await streamAgentReply();
+    await streamAgentReply({
+      userId: req.auth!.authUserId,
+      authUserId: req.auth!.authUserId,
+      threadId: parsed.data.threadId,
+      message: parsed.data.message,
+      onEvent: write,
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "unknown error";
+    console.error("Agent stream failed:", error);
     write({ type: "error", message });
   } finally {
     res.end();

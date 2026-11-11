@@ -19,7 +19,8 @@ export async function ensureUser(input: {
         ON CONFLICT (auth_user_id)
         DO UPDATE SET email = COALESCE(EXCLUDED.email, users.email)
         RETURNING *
-        `
+        `,
+        [input.authUserId, input.email ?? null],
     )
 
     const user = (await result).rows[0];

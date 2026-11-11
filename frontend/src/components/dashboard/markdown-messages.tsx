@@ -1,7 +1,7 @@
 "use client";
 
-// import ReactMarkdown from "react-markdown";
-// import remarkGfm from "remark-gfm";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -40,7 +40,7 @@ export function MarkdownMessage({
     <div
       className={cn(styles.root, tone === "user" && styles.rootUser, className)}
     >
-      {/* <ReactMarkdown
+      <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           a: ({ href, children }) => <Link href={href ?? "#"}>{children}</Link>,
@@ -70,7 +70,7 @@ export function MarkdownMessage({
         }}
       >
         {content}
-      </ReactMarkdown> */}
+      </ReactMarkdown>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import cors from "cors";
 import express from "express";
 import { getPool } from "./db/pool";
 import connectionRoutes from "./routes/connection.routes";
+import { agentRoutes } from "./routes/agent.routes";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -28,6 +29,7 @@ app.get("/health", async (req, res) => {
 });
 
 app.use('/api/connections', connectionRoutes);
+app.use('/api/agent', agentRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

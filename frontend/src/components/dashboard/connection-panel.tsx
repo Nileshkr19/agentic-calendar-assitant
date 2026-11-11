@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import {
   connectCalendar,
-  fetchCalendarConnections,
+  fetchCalendarConnection,
   refreshCalendarConnection,
 } from "@/lib/connection";
 
@@ -43,14 +43,25 @@ function ConnectionsPanel({ sessionToken }: { sessionToken: string }) {
   const [connection, setConnection] = useState<ConnectionInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const handleLoadCalendarConnection = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
 
     try {
-      setConnection(await fetchCalendarConnections(sessionToken));
+      const currentConnection = await fetchCalendarConnection(sessionToken);
+      setConnection(currentConnection);
+
+      if (currentConnection.status === "pending") {
+        try {
+          setConnection(await refreshCalendarConnection(sessionToken));
+        } catch {
+          // Keep the pending state visible so the user can retry manually.
+        }
+      }
     } catch {
-      console.log("failed to load calendar connection");
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -73,8 +84,7 @@ function ConnectionsPanel({ sessionToken }: { sessionToken: string }) {
     setBusy(true);
 
     try {
-      await refreshCalendarConnection(sessionToken);
-      await handleLoadCalendarConnection();
+      setConnection(await refreshCalendarConnection(sessionToken));
     } catch {
       console.log("failed to refresh");
     } finally {
@@ -89,7 +99,11 @@ function ConnectionsPanel({ sessionToken }: { sessionToken: string }) {
       <p className={styles.title}>Connections</p>
 
       {loading || !connection ? (
-        <Skeleton className={styles.skeleton} />
+        loadError ? (
+          <p className={styles.error}>Could not load calendar connection.</p>
+        ) : (
+          <Skeleton className={styles.skeleton} />
+        )
       ) : (
         <div className={styles.row}>
           <div

@@ -65,7 +65,11 @@ export const refreshCalendarConnectionStatus = async (input: {
       calendarAppId(),
       input.authUserId,
     );
-  const status = response.ok && response.data ? "connected" : "disconnected";
+  const accessToken =
+    response.ok && response.data
+      ? (response.data as { accessToken?: string }).accessToken
+      : undefined;
+  const status = accessToken ? "connected" : "disconnected";
 
   const row = await upsertCalendarConnectionRow({
     userId: input.userId,

@@ -17,7 +17,12 @@ import {
 } from "react";
 import { Button } from "../ui/button";
 import { Separator } from "../ui/separator";
-import { ThreadSummary } from "@/lib/agent";
+import {
+  listThreads,
+  loadThread,
+  streamAgentChat,
+  ThreadSummary,
+} from "@/lib/agent";
 import { ScrollArea } from "../ui/scroll-area";
 import { Textarea } from "../ui/textarea";
 import { cn } from "@/lib/utils";
@@ -149,20 +154,20 @@ function ChatPanel({ sessionToken, connections, footer }: Props) {
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  //   const refreshThreads = useCallback(async () => {
-  //     try {
-  //       const data = await listThreads(sessionToken);
-  //       setThreads(data.threads);
-  //     } catch {}
-  //   }, [sessionToken]);
+  const refreshThreads = useCallback(async () => {
+    try {
+      const data = await listThreads(sessionToken);
+      setThreads(data.threads);
+    } catch {}
+  }, [sessionToken]);
 
-  //   useEffect(() => {
-  //     refreshThreads();
-  //   }, [refreshThreads]);
+  useEffect(() => {
+    refreshThreads();
+  }, [refreshThreads]);
 
-  //   useEffect(() => {
-  //     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  //   }, [messages, progress]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, progress]);
 
   function startNewChat() {
     if (running) return;
@@ -171,124 +176,142 @@ function ChatPanel({ sessionToken, connections, footer }: Props) {
     setPrompt("");
   }
 
-  //   async function resumeThread(nextThreadId: string) {
-  //     if (running || loadingThread || nextThreadId === threadId) return;
-  //     setLoadingThread(true);
-  //     setProgress(null);
+  async function resumeThread(nextThreadId: string) {
+    if (running || loadingThread || nextThreadId === threadId) return;
+    setLoadingThread(true);
+    setProgress(null);
 
-  //     try {
-  //       const data = await loadThread(sessionToken, nextThreadId);
-  //       setThreadId(data.threadId);
-  //       setMessages(
-  //         data.messages.length > 0 ? data.messages : [WelcomeMessage()],
-  //       );
-  //       setPrompt("");
-  //     } catch {
-  //       setMessages((current) => [
-  //         ...current,
-  //         {
-  //           id: crypto.randomUUID(),
-  //           role: "system",
-  //           content: "Could not load the chat",
-  //         },
-  //       ]);
-  //     } finally {
-  //       setLoadingThread(false);
-  //     }
-  //   }
+    try {
+      const data = await loadThread(sessionToken, nextThreadId);
+      setThreadId(data.threadId);
+      setMessages(
+        data.messages.length > 0 ? data.messages : [WelcomeMessage()],
+      );
+      setPrompt("");
+    } catch {
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "system",
+          content: "Could not load the chat",
+        },
+      ]);
+    } finally {
+      setLoadingThread(false);
+    }
+  }
 
-  //   async function sendMessage(text: string) {
-  //     const trimmed = text.trim();
+  async function sendMessage(text: string) {
+    const trimmed = text.trim();
 
-  //     if (!trimmed || running || loadingThread) return;
-  //     const assistantId = crypto.randomUUID();
+    if (!trimmed || running || loadingThread) return;
+    const assistantId = crypto.randomUUID();
 
-  //     setMessages((current) => [
-  //       ...current,
-  //       {
-  //         id: crypto.randomUUID(),
-  //         role: "user",
-  //         content: trimmed,
-  //       },
-  //       {
-  //         id: assistantId,
-  //         role: "assistant",
-  //         content: "",
-  //       },
-  //     ]);
+    setMessages((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: trimmed,
+      },
+      {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+      },
+    ]);
 
-  //     setPrompt("");
-  //     setRunning(true);
-  //     setProgress(null);
+    setPrompt("");
+    setRunning(true);
+    setProgress(null);
 
-  //     try {
-  //       await streamAgentChat(
-  //         sessionToken,
-  //         {
-  //           message: trimmed,
-  //           threadId,
-  //         },
-  //         (event) => {
-  //           if (event.type === "progress" && event.message) {
-  //             setProgress(event.message);
-  //           }
-  //           if (event.type === "token" && event.token) {
-  //             setProgress(null);
-  //             setMessages((current) =>
-  //               current.map((message) =>
-  //                 message.id === assistantId
-  //                   ? {
-  //                       ...message,
-  //                       content: message.content + event.token,
-  //                     }
-  //                   : message,
-  //               ),
-  //             );
-  //           }
+    try {
+      let receivedAssistantEvent = false;
+      await streamAgentChat(
+        sessionToken,
+        {
+          message: trimmed,
+          threadId,
+        },
+        (event) => {
+          if (event.type === "token" || event.type === "error") {
+            receivedAssistantEvent = true;
+          }
 
-  //           if (event.type === "error") {
-  //             setProgress(null);
-  //             setMessages((current) =>
-  //               current.map((message) =>
-  //                 message.id === assistantId
-  //                   ? {
-  //                       ...message,
-  //                       content: event.message ?? "Agent failed",
-  //                     }
-  //                   : message,
-  //               ),
-  //             );
-  //           }
-  //         },
-  //       );
+          if (event.type === "progress" && event.message) {
+            setProgress(event.message);
+          }
+          if (event.type === "token" && event.token) {
+            setProgress(null);
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      content: message.content + event.token,
+                    }
+                  : message,
+              ),
+            );
+          }
 
-  //       refreshThreads();
-  //     } catch {
-  //       setMessages((current) => [
-  //         ...current,
-  //         {
-  //           id: crypto.randomUUID(),
-  //           role: "system",
-  //           content: "Could not reach the agent API",
-  //         },
-  //       ]);
-  //     } finally {
-  //       setRunning(false);
-  //       setProgress(null);
-  //     }
-  //   }
+          if (event.type === "error") {
+            setProgress(null);
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      content: event.message ?? "Agent failed",
+                    }
+                  : message,
+              ),
+            );
+          }
+        },
+      );
 
-  //   function onSubmit(event: FormEvent) {
-  //     event.preventDefault();
-  //     sendMessage(prompt);
-  //   }
+      if (!receivedAssistantEvent) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  content: "The agent finished without a response. Check the backend logs.",
+                }
+              : message,
+          ),
+        );
+      }
 
-  //   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-  //     if (event.key === "Enter" && !event.shiftKey) {
-  //       event.preventDefault();
-  //       sendMessage(prompt);
-  //     }
-  //   }
+      refreshThreads();
+    } catch {
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "system",
+          content: "Could not reach the agent API",
+        },
+      ]);
+    } finally {
+      setRunning(false);
+      setProgress(null);
+    }
+  }
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    sendMessage(prompt);
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendMessage(prompt);
+    }
+  }
 
   return (
     <div className={styles.root}>
@@ -325,7 +348,7 @@ function ChatPanel({ sessionToken, connections, footer }: Props) {
               </p>
             ) : (
               <div className={styles.threadList}>
-                {/* {threads.map((thread) => {
+                {threads.map((thread) => {
                   const active = thread.id === threadId;
                   return (
                     <button
@@ -344,8 +367,7 @@ function ChatPanel({ sessionToken, connections, footer }: Props) {
                       </span>
                     </button>
                   );
-                })} */}
-                Threads will show up here once you start a chat.
+                })}
               </div>
             )}
           </ScrollArea>
@@ -382,7 +404,7 @@ function ChatPanel({ sessionToken, connections, footer }: Props) {
                         type="button"
                         variant="outline"
                         size="sm"
-                        // onClick={() => sendMessage(currentSuggestionItem)}
+                        onClick={() => sendMessage(currentSuggestionItem)}
                         className={styles.suggestionBtn}
                         disabled={running || loadingThread}
                       >
@@ -461,11 +483,12 @@ function ChatPanel({ sessionToken, connections, footer }: Props) {
           </ScrollArea>
 
           <div className={styles.composerWrap}>
-            <form className={styles.composerForm}>
+            <form onSubmit={onSubmit} className={styles.composerForm}>
               <Textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 rows={1}
+                onKeyDown={onKeyDown}
                 disabled={running}
                 placeholder="Ask about your calendar..."
                 className={styles.composerInput}

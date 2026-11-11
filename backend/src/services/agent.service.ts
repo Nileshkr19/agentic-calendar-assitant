@@ -1,7 +1,7 @@
-import { getAgentInstructions } from "../config/agent-instructions";
-import { createAgentMemory } from "../config/memory";
-import {Agent} from "@mastra/core/agent"
-import { createCalendarTools } from "./agent-tools.service";
+import { Agent } from "@mastra/core/agent";
+import { createAgentMemory } from "../config/memory.js";
+import { getAgentInstructions } from "../config/agent-instructions.js";
+import { createCalendarTools } from "./agent-tools.service.js";
 
 export type AgentEvent = {
   type: "started" | "progress" | "token" | "completed" | "error";
@@ -29,8 +29,10 @@ export type ThreadMessage = {
   content: string;
 };
 
-function modelName() {
-  return process.env.GEMINI_MODEL_NAME || "gemini-flash-latest";
+function modelName(): `google/${string}` {
+  const configuredModel =
+    process.env.GEMINI_MODEL_NAME ?? "gemini-flash-latest";
+  return `google/${configuredModel.replace(/^google\//, "")}`;
 }
 
 function messageText(content: unknown): string {
@@ -55,26 +57,176 @@ function messageText(content: unknown): string {
     .trim();
 }
 
-export const streamAgentReply = async (
-  input:StreamAgentReplyInput
-) => {
-    if(!process.env.API_KEY){
-      throw new Error("API_KEY is not set in the environment variables.");
+export async function listUserThreads(
+  authUserId: string,
+): Promise<ThreadSummary[]> {
+  const memory = createAgentMemory();
+
+  const result = await memory.listThreads({
+    filter: { resourceId: authUserId },
+    perPage: 30,
+    orderBy: { field: "updatedAt", direction: "DESC" },
+  });
+
+  return Promise.all(
+    result.threads.map(async (thread) => {
+      let title = thread.title?.trim();
+
+      if (!title || title === "Untitled Chat") {
+        const recalledMemoryData = await memory.recall({
+          threadId: thread.id,
+          resourceId: authUserId,
+          perPage: false,
+        });
+        const firstUserMessage = recalledMemoryData.messages.find(
+          (message) => message.role === "user",
+        );
+        const messageTitle = firstUserMessage
+          ? messageText(firstUserMessage.content).slice(0, 80)
+          : "";
+
+        if (messageTitle) {
+          title = messageTitle;
+          await memory.updateThread({
+            id: thread.id,
+            title,
+            metadata: thread.metadata ?? {},
+          });
+        }
+      }
+
+      return {
+        id: thread.id,
+        title: title || "Untitled Chat",
+        updatedAt:
+          thread.updatedAt instanceof Date
+            ? thread.updatedAt.toISOString()
+            : String(thread.updatedAt),
+      };
+    }),
+  );
+}
+
+export async function getThreadMessages(
+  authUserId: string,
+  threadId: string,
+): Promise<ThreadMessage[]> {
+  const memory = createAgentMemory();
+
+  const thread = await memory.getThreadById({
+    threadId,
+    resourceId: authUserId,
+  });
+
+  if (!thread || thread.resourceId !== authUserId) {
+    throw new Error("Thread not found");
+  }
+
+  const recalledMemoryData = await memory.recall({
+    threadId,
+    resourceId: authUserId,
+    perPage: false,
+  });
+
+  const messages: ThreadMessage[] = [];
+
+  for (const message of recalledMemoryData.messages) {
+    const content = messageText(message.content);
+
+    if (!content) {
+      continue;
     }
 
-    input.onEvent({
-      type: "started",
-      message: "Agent is planing the reply...",
-    });
+    const role: ThreadMessage["role"] =
+      message.role === "user" || message.role === "assistant"
+        ? message.role
+        : "system";
 
-   const memory = createAgentMemory();
+    messages.push({
+      id: message.id,
+      role,
+      content,
+    });
+  }
+
+  return messages;
+}
+
+export async function streamAgentReply(input: StreamAgentReplyInput) {
+  if (!process.env.API_KEY) {
+    throw new Error("API_KEY is not set in the environment variables.");
+  }
+
+  input.onEvent({
+    type: "started",
+    message: "Agent is planning",
+  });
+
+  const memory = createAgentMemory();
 
   const agent = new Agent({
     id: "metting-assistant",
     name: "Meeting Assitant",
     instructions: getAgentInstructions(),
-    model: modelName(),
+    model: {
+      id: modelName(),
+      apiKey: process.env.API_KEY,
+    },
     tools: createCalendarTools(input.authUserId),
     memory,
   });
-};
+
+  const result = await agent.stream(input.message, {
+    memory: {
+      resource: input.authUserId,
+      thread: input.threadId,
+    },
+  });
+
+  for await (const chunk of result.fullStream) {
+    if (chunk.type === "error") {
+      const error = chunk.payload.error;
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+
+    if (chunk.type === "tool-call") {
+      input.onEvent({
+        type: "progress",
+        message: `Running ${chunk.payload.toolName}`,
+      });
+
+      continue;
+    }
+
+    if (chunk.type === "text-delta") {
+      const text = chunk.payload.text;
+
+      if (text) {
+        input.onEvent({
+          type: "token",
+          token: text,
+        });
+      }
+    }
+  }
+
+  // streaming finsihes
+
+  const thread = await memory.getThreadById({
+    threadId: input.threadId,
+    resourceId: input.authUserId,
+  });
+
+  if (thread && !thread.title?.trim()) {
+    await memory.updateThread({
+      id: thread.id,
+      title: input.message.slice(0, 80),
+      metadata: thread.metadata ?? {},
+    });
+  }
+
+  input.onEvent({
+    type: "completed",
+    message: "done",
+  });
+}

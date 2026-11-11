@@ -2,7 +2,7 @@ import { apiFetch } from "./api";
 import { ConnectionInfo } from "./types";
 import { getRefreshToken } from "@descope/nextjs-sdk/client";
 
-export const fetchCalendarConnections = async (token: string) => {
+export const fetchCalendarConnection = async (token: string) => {
   const data = await apiFetch<{ connections: ConnectionInfo }>(
     "/api/connections",
     { token },
@@ -29,11 +29,13 @@ export const connectCalendar = async (token: string) => {
 };
 
 export const refreshCalendarConnection = async (token: string) => {
-  await apiFetch<{ connection: ConnectionInfo }>(
+  const data = await apiFetch<{ connection: ConnectionInfo }>(
     "/api/connections/refresh-status",
     {
       method: "POST",
       token,
     },
   );
+
+  return data.connection;
 };

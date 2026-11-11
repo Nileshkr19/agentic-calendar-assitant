@@ -13,7 +13,7 @@ export const getCalendarConnectionRow = async (userId: string) => {
 
   const result = await getPool().query<currentConnectionRow>(
     `
-        SELECT user_id, provide, status
+        SELECT user_id, provider, status
         FROM connections
         WHERE user_id = $1 AND provider = 'google-calendar'
         `,
@@ -32,9 +32,9 @@ export const upsertCalendarConnectionRow = async (input: {
         VALUES ($1, 'google-calendar', $2)
         ON CONFLICT (user_id, provider)
         DO UPDATE SET status = EXCLUDED.status
-        RETURINING user_id, provider, status
+        RETURNING user_id, provider, status
         `,
     [input.userId, input.status],
   );
-  return result.rows[0] ;
+  return result.rows[0];
 };
